@@ -3,6 +3,7 @@ package com.example.aquatest
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,6 +22,7 @@ import com.example.aquatest.screens.DashboardScreen
 import com.example.aquatest.screens.LoginScreen
 import com.example.aquatest.screens.RegisterScreen
 import com.example.aquatest.ui.theme.AquaTestTheme
+import com.google.gson.Gson
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -32,13 +34,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AquaTestTheme {
-                // Request permissions on startup
                 RequestPermissions()
-                
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     AuthApp(bleManager)
                 }
             }
@@ -49,29 +46,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RequestPermissions() {
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        arrayOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
     } else {
-        arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
-
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
-
-    LaunchedEffect(Unit) {
-        launcher.launch(permissions)
-    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ -> }
+    LaunchedEffect(Unit) { launcher.launch(permissions) }
 }
 
 @Composable
 fun AuthApp(bleManager: BLEManager) {
     var currentScreen by remember { mutableStateOf("login") }
+    var userId by remember { mutableStateOf("") }
+    var topicId by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -82,14 +69,18 @@ fun AuthApp(bleManager: BLEManager) {
                 scope.launch {
                     try {
                         val response = RetrofitClient.instance.login(AuthRequest(email, pass))
-                        if (response.isSuccessful) {
+                        if (response.isSuccessful && response.body() != null) {
+                            val data = response.body()!!
+                            // Przywracamy bezpośredni odczyt (tak jak było dobrze na początku)
+                            userId = data.user_id
+                            topicId = data.topic_id
                             Toast.makeText(context, "Zalogowano!", Toast.LENGTH_SHORT).show()
                             currentScreen = "dashboard"
                         } else {
-                            Toast.makeText(context, "Błąd logowania", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Błąd logowania: ${response.code()}", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Błąd sieci", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Błąd sieci: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -105,11 +96,11 @@ fun AuthApp(bleManager: BLEManager) {
                             currentScreen = "login"
                         }
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Błąd sieci", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Błąd sieci: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
         )
-        "dashboard" -> DashboardScreen(bleManager = bleManager)
+        "dashboard" -> DashboardScreen(bleManager, userId, topicId)
     }
 }
