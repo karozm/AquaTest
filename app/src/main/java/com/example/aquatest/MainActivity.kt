@@ -3,7 +3,6 @@ package com.example.aquatest
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,11 +17,13 @@ import androidx.compose.ui.platform.LocalContext
 import com.example.aquatest.api.AuthRequest
 import com.example.aquatest.api.RetrofitClient
 import com.example.aquatest.bluetooth.BLEManager
+import com.example.aquatest.data.DeviceStore
+import com.example.aquatest.data.SavedDevice
 import com.example.aquatest.screens.DashboardScreen
+import com.example.aquatest.screens.DeviceDetailsScreen
 import com.example.aquatest.screens.LoginScreen
 import com.example.aquatest.screens.RegisterScreen
 import com.example.aquatest.ui.theme.AquaTestTheme
-import com.google.gson.Gson
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -35,9 +36,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             AquaTestTheme {
                 RequestPermissions()
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AuthApp(bleManager)
-                }
+                Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                ) { AuthApp(bleManager) }
             }
         }
     }
@@ -45,62 +47,123 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun RequestPermissions() {
-    val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
-    } else {
-        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ -> }
+    val permissions =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                arrayOf(
+                        Manifest.permission.BLUETOOTH_SCAN,
+                        Manifest.permission.BLUETOOTH_CONNECT,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                )
+            } else {
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+    val launcher =
+            rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions()
+            ) { _ -> }
     LaunchedEffect(Unit) { launcher.launch(permissions) }
 }
 
 @Composable
 fun AuthApp(bleManager: BLEManager) {
     var currentScreen by remember { mutableStateOf("login") }
+    var selectedDevice by remember { mutableStateOf<SavedDevice?>(null) }
     var userId by remember { mutableStateOf("") }
-    var topicId by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    when (currentScreen) {
-        "login" -> LoginScreen(
-            onNavigateToRegister = { currentScreen = "register" },
-            onLoginClick = { email, pass ->
-                scope.launch {
-                    try {
-                        val response = RetrofitClient.instance.login(AuthRequest(email, pass))
-                        if (response.isSuccessful && response.body() != null) {
-                            val data = response.body()!!
-                            // Przywracamy bezpośredni odczyt (tak jak było dobrze na początku)
-                            userId = data.user_id
-                            topicId = data.topic_id
-                            Toast.makeText(context, "Zalogowano!", Toast.LENGTH_SHORT).show()
-                            currentScreen = "dashboard"
-                        } else {
-                            Toast.makeText(context, "Błąd logowania: ${response.code()}", Toast.LENGTH_SHORT).show()
-                        }
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Błąd sieci: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
+    if (selectedDevice != null) {
+        DeviceDetailsScreen(
+                bleManager = bleManager,
+                device = selectedDevice!!,
+                userId = userId,
+                onBack = { selectedDevice = null },
+                onDeviceUpdated = { updatedDevice -> selectedDevice = updatedDevice }
         )
-        "register" -> RegisterScreen(
-            onNavigateToLogin = { currentScreen = "login" },
-            onRegisterClick = { email, pass ->
-                scope.launch {
-                    try {
-                        val response = RetrofitClient.instance.register(AuthRequest(email, pass))
-                        if (response.isSuccessful) {
-                            Toast.makeText(context, "Zarejestrowano!", Toast.LENGTH_SHORT).show()
-                            currentScreen = "login"
-                        }
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Błąd sieci: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        )
-        "dashboard" -> DashboardScreen(bleManager, userId, topicId)
+    } else {
+        when (currentScreen) {
+            "login" ->
+                    LoginScreen(
+                            onNavigateToRegister = { currentScreen = "register" },
+                            onLoginClick = { email, pass ->
+                                scope.launch {
+                                    try {
+                                        val response =
+                                                RetrofitClient.instance.login(
+                                                        AuthRequest(email, pass)
+                                                )
+                                        if (response.isSuccessful && response.body() != null) {
+                                            val data = response.body()!!
+                                            userId = data.user_id
+                                            Toast.makeText(
+                                                            context,
+                                                            "Zalogowano!",
+                                                            Toast.LENGTH_SHORT
+                                                    )
+                                                    .show()
+                                            currentScreen = "dashboard"
+                                        } else {
+                                            Toast.makeText(
+                                                            context,
+                                                            "Błąd logowania: ${response.code()}",
+                                                            Toast.LENGTH_SHORT
+                                                    )
+                                                    .show()
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                                        context,
+                                                        "Błąd sieci: ${e.message}",
+                                                        Toast.LENGTH_SHORT
+                                                )
+                                                .show()
+                                    }
+                                }
+                            }
+                    )
+            "register" ->
+                    RegisterScreen(
+                            onNavigateToLogin = { currentScreen = "login" },
+                            onRegisterClick = { email, pass ->
+                                scope.launch {
+                                    try {
+                                        val response =
+                                                RetrofitClient.instance.register(
+                                                        AuthRequest(email, pass)
+                                                )
+                                        if (response.isSuccessful) {
+                                            Toast.makeText(
+                                                            context,
+                                                            "Zarejestrowano!",
+                                                            Toast.LENGTH_SHORT
+                                                    )
+                                                    .show()
+                                            currentScreen = "login"
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                                        context,
+                                                        "Błąd sieci: ${e.message}",
+                                                        Toast.LENGTH_SHORT
+                                                )
+                                                .show()
+                                    }
+                                }
+                            }
+                    )
+            "dashboard" ->
+                    DashboardScreen(
+                            bleManager = bleManager,
+                            userId = userId,
+                            onDeviceClick = { device -> selectedDevice = device },
+                            onLogout = {
+                                bleManager.disconnect()
+                                val deviceStore = DeviceStore(context)
+                                deviceStore.clearAllDevices()
+                                userId = ""
+                                currentScreen = "login"
+                            }
+                    )
+        }
     }
 }
