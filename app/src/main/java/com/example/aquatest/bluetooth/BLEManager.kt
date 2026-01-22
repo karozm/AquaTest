@@ -10,6 +10,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.example.aquatest.api.ProvisionResponseData
+import com.example.aquatest.api.RetrofitClient
+import com.example.aquatest.api.SetConfigRequest
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.*
@@ -271,6 +273,12 @@ class BLEManager(private val context: Context) {
                                             "temp_above" -> "Temperatura powyżej normy: $value"
                                             "ph_below" -> "pH poniżej normy: $value"
                                             "ph_above" -> "pH powyżej normy: $value"
+                                            "hardware_error" -> {
+                                                val errorType =
+                                                        if (value == "feed_failed") "Błąd karmienia"
+                                                        else value
+                                                "❌ Błąd sprzętu: $errorType"
+                                            }
                                             else -> "Alert: $event = $value"
                                         }
                                     } catch (e: Exception) {
@@ -497,15 +505,45 @@ class BLEManager(private val context: Context) {
         telemetryPrefs.edit().putString("${deviceAddress}_$key", value).apply()
     }
 
-    fun setTemperatureThreshold(isLower: Boolean, value: Float) {
+    suspend fun setTemperatureThreshold(isLower: Boolean, value: Float, deviceId: String) {
         val charUuid = if (isLower) TEMP_LOWER_CHR_UUID else TEMP_UPPER_CHR_UUID
         val buffer = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putFloat(value)
         sendCommand(charUuid, buffer.array())
+
+        // Send API request after writing to characteristic
+        try {
+            val configName = if (isLower) "temp_lower" else "temp_upper"
+            RetrofitClient.instance.setConfig(
+                    SetConfigRequest(
+                            device_id = deviceId,
+                            name = configName,
+                            value = value.toString()
+                    )
+            )
+            Log.d("BLE_CONFIG", "Sent config: $configName = $value for device $deviceId")
+        } catch (e: Exception) {
+            Log.e("BLE_CONFIG", "Failed to send config for temperature threshold", e)
+        }
     }
 
-    fun setPhThreshold(isLower: Boolean, value: Float) {
+    suspend fun setPhThreshold(isLower: Boolean, value: Float, deviceId: String) {
         val charUuid = if (isLower) PH_LOWER_CHR_UUID else PH_UPPER_CHR_UUID
         val buffer = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putFloat(value)
         sendCommand(charUuid, buffer.array())
+
+        // Send API request after writing to characteristic
+        try {
+            val configName = if (isLower) "ph_lower" else "ph_upper"
+            RetrofitClient.instance.setConfig(
+                    SetConfigRequest(
+                            device_id = deviceId,
+                            name = configName,
+                            value = value.toString()
+                    )
+            )
+            Log.d("BLE_CONFIG", "Sent config: $configName = $value for device $deviceId")
+        } catch (e: Exception) {
+            Log.e("BLE_CONFIG", "Failed to send config for pH threshold", e)
+        }
     }
 }

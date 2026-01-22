@@ -51,6 +51,10 @@ data class SetUpdateRequest(val user_id: String, val device_id: String, val acce
 
 data class SetNameRequest(val device_id: String, val name: String)
 
+data class SetConfigRequest(val device_id: String, val name: String, val value: String)
+
+data class GetConfigResponse(val config: Map<String, String?>?)
+
 interface ApiService {
         @POST("user/register") suspend fun register(@Body request: AuthRequest): Response<Unit>
 
@@ -67,10 +71,16 @@ interface ApiService {
         @GET("device/get_version")
         suspend fun getVersion(@Query("device_id") deviceId: String): Response<GetVersionResponse>
 
+        @GET("device/get_config")
+        suspend fun getConfig(@Query("device_id") deviceId: String): Response<GetConfigResponse>
+
         @POST("device/set_update")
         suspend fun setUpdate(@Body request: SetUpdateRequest): Response<Unit>
 
         @POST("device/set_name") suspend fun setName(@Body request: SetNameRequest): Response<Unit>
+
+        @POST("device/set_config")
+        suspend fun setConfig(@Body request: SetConfigRequest): Response<Unit>
 
         @GET suspend fun downloadFile(@Url url: String): Response<String>
 }
