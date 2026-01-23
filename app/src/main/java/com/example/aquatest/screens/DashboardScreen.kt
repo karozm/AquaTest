@@ -104,25 +104,6 @@ fun DashboardScreen(
                                                                         )
                                                         }
 
-                                                // Auto-connect to devices if found during scanning
-                                                savedDevices.forEach { savedDevice ->
-                                                        val foundDevice =
-                                                                devices.find {
-                                                                        it.address ==
-                                                                                savedDevice.mac
-                                                                }
-                                                        if (foundDevice != null &&
-                                                                        connectionState !=
-                                                                                BluetoothProfile
-                                                                                        .STATE_CONNECTED
-                                                        ) {
-                                                                Log.d(
-                                                                        "Dashboard",
-                                                                        "Auto-connecting to device: ${savedDevice.mac}"
-                                                                )
-                                                                bleManager.connect(foundDevice)
-                                                        }
-                                                }
                                         } else {
                                                 savedDevices = emptyList()
                                         }
@@ -180,7 +161,20 @@ fun DashboardScreen(
                                 SavedDeviceItem(
                                         device,
                                         isFound = isFound,
-                                        onClick = { onDeviceClick(device) }
+                                        onClick = {
+                                                // Try to connect if device is found and not already connected to this device
+                                                val isCurrentlyConnected = connectedDevice?.address == device.mac && 
+                                                        connectionState == BluetoothProfile.STATE_CONNECTED
+                                                if (isFound && !isCurrentlyConnected) {
+                                                        val foundDevice = devices.find { it.address == device.mac }
+                                                        foundDevice?.let {
+                                                                Log.d("Dashboard", "Connecting to device: ${device.mac}")
+                                                                bleManager.connect(it)
+                                                        }
+                                                }
+                                                // Navigate to device details screen
+                                                onDeviceClick(device)
+                                        }
                                 )
                         }
                         item { Spacer(modifier = Modifier.height(24.dp)) }

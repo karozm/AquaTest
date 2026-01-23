@@ -80,7 +80,6 @@ fun DeviceDetailsScreen(
         var isUpdatingWifi by remember { mutableStateOf(false) }
 
         var isConfigurationExpanded by remember { mutableStateOf(false) }
-        var hasAttemptedAutoConnect by remember { mutableStateOf(false) }
         var autoConnectDisabled by remember { mutableStateOf(false) }
 
         // Threshold settings state
@@ -89,10 +88,18 @@ fun DeviceDetailsScreen(
         var phLower by remember { mutableStateOf("") }
         var phUpper by remember { mutableStateOf("") }
 
-        // Interval state
+        // Interval state - store as seconds
         var selectedTempInterval by remember { mutableStateOf<Int?>(null) }
         var selectedFeedInterval by remember { mutableStateOf<Int?>(null) }
         var selectedPublishInterval by remember { mutableStateOf<Int?>(null) }
+        
+        // Interval unit and value state for UI
+        var tempIntervalUnit by remember { mutableStateOf("min") }
+        var tempIntervalValue by remember { mutableStateOf(1) }
+        var feedIntervalUnit by remember { mutableStateOf("min") }
+        var feedIntervalValue by remember { mutableStateOf(1) }
+        var publishIntervalUnit by remember { mutableStateOf("min") }
+        var publishIntervalValue by remember { mutableStateOf(1) }
 
         // Loaded config state for display
         var loadedConfig by remember { mutableStateOf<Map<String, String>?>(null) }
@@ -103,6 +110,37 @@ fun DeviceDetailsScreen(
         var firmwareVersion by remember { mutableStateOf("") }
         var isCheckingFirmware by remember { mutableStateOf(false) }
         var firmwareDownloadStarted by remember { mutableStateOf(false) }
+
+        // Helper function to convert seconds to unit/value pair
+        fun secondsToUnitValue(seconds: Int): Pair<String, Int> {
+                return when {
+                        seconds == 0 -> "never" to 0
+                        seconds % 86400 == 0 && seconds / 86400 in 1..7 -> {
+                                "days" to (seconds / 86400)
+                        }
+                        seconds % 3600 == 0 && seconds / 3600 in 1..24 -> {
+                                "hr" to (seconds / 3600)
+                        }
+                        seconds % 60 == 0 && seconds / 60 in 1..60 -> {
+                                "min" to (seconds / 60)
+                        }
+                        else -> {
+                                // Default to minutes, round to nearest minute
+                                val minutes = (seconds / 60).coerceIn(1, 60)
+                                "min" to minutes
+                        }
+                }
+        }
+
+        // Helper function to convert unit/value to seconds
+        fun unitValueToSeconds(unit: String, value: Int): Int {
+                return when (unit) {
+                        "min" -> value * 60
+                        "hr" -> value * 3600
+                        "days" -> value * 86400
+                        else -> value * 60
+                }
+        }
 
         // Function to load device config from API
         fun loadDeviceConfig() {
@@ -155,13 +193,31 @@ fun DeviceDetailsScreen(
 
                                         // Parse and populate intervals
                                         config["temp_frequency"]?.let {
-                                                selectedTempInterval = it?.toIntOrNull()
+                                                val seconds = it?.toIntOrNull()
+                                                selectedTempInterval = seconds
+                                                seconds?.let { sec ->
+                                                        val (unit, value) = secondsToUnitValue(sec)
+                                                        tempIntervalUnit = unit
+                                                        tempIntervalValue = value
+                                                }
                                         }
                                         config["feed_frequency"]?.let {
-                                                selectedFeedInterval = it?.toIntOrNull()
+                                                val seconds = it?.toIntOrNull()
+                                                selectedFeedInterval = seconds
+                                                seconds?.let { sec ->
+                                                        val (unit, value) = secondsToUnitValue(sec)
+                                                        feedIntervalUnit = unit
+                                                        feedIntervalValue = value
+                                                }
                                         }
                                         config["wake_frequency"]?.let {
-                                                selectedPublishInterval = it?.toIntOrNull()
+                                                val seconds = it?.toIntOrNull()
+                                                selectedPublishInterval = seconds
+                                                seconds?.let { sec ->
+                                                        val (unit, value) = secondsToUnitValue(sec)
+                                                        publishIntervalUnit = unit
+                                                        publishIntervalValue = value
+                                                }
                                         }
                                 } else {
                                         Log.e(
@@ -260,26 +316,6 @@ fun DeviceDetailsScreen(
                 }
         }
 
-        // Auto-connect when device is found
-        LaunchedEffect(
-                foundDevices,
-                isConnected,
-                isConnecting,
-                hasAttemptedAutoConnect,
-                autoConnectDisabled
-        ) {
-                if (!isConnected &&
-                                !isConnecting &&
-                                !hasAttemptedAutoConnect &&
-                                !autoConnectDisabled
-                ) {
-                        val bleDevice = foundDevices.find { it.address == currentDevice.mac }
-                        if (bleDevice != null) {
-                                bleManager.connect(bleDevice)
-                                hasAttemptedAutoConnect = true
-                        }
-                }
-        }
 
         Scaffold(
                 topBar = {
@@ -1093,198 +1129,132 @@ fun DeviceDetailsScreen(
                                                                 }
                                                                 HorizontalDivider()
                                                                 // Frequency
-                                                                val intervalOptions =
-                                                                        listOf(
-                                                                                "Co 10s" to 10,
-                                                                                "Co 30s" to 30,
-                                                                                "Co 1min" to 60,
-                                                                                "Co 5min" to 300,
-                                                                                "Co 10 min" to 600,
-                                                                                "Co 1h" to 3600,
-                                                                                "Co 6h" to 21600,
-                                                                                "Co 12h" to 43200,
-                                                                                "Co 24h" to 86400
-                                                                        )
-                                                                FrequencySelector(
+                                                                CustomIntervalSelector(
                                                                         label = "Temp interval",
-                                                                        options = intervalOptions,
                                                                         enabled = isConnected,
-                                                                        initialValue =
-                                                                                selectedTempInterval
-                                                                ) {
-                                                                        scope.launch {
-                                                                                selectedTempInterval =
-                                                                                        it
-                                                                                val deviceId =
-                                                                                        if (currentDevice
-                                                                                                        .topicId
-                                                                                                        .isNotBlank()
+                                                                        unit = tempIntervalUnit,
+                                                                        value = tempIntervalValue,
+                                                                        onUnitChange = { tempIntervalUnit = it },
+                                                                        onValueChange = { tempIntervalValue = it },
+                                                                        onApply = { seconds ->
+                                                                                scope.launch {
+                                                                                        selectedTempInterval = seconds
+                                                                                        val deviceId =
+                                                                                                if (currentDevice.topicId.isNotBlank())
+                                                                                                        currentDevice.topicId
+                                                                                                else
+                                                                                                        currentDevice.mac
+                                                                                        bleManager.sendCommand(
+                                                                                                bleManager.TEMP_INTERVAL_CHR_UUID,
+                                                                                                bleManager.createIntervalPayload(seconds)
                                                                                         )
-                                                                                                currentDevice
-                                                                                                        .topicId
-                                                                                        else
-                                                                                                currentDevice
-                                                                                                        .mac
-                                                                                bleManager
-                                                                                        .sendCommand(
-                                                                                                bleManager
-                                                                                                        .TEMP_INTERVAL_CHR_UUID,
-                                                                                                bleManager
-                                                                                                        .createIntervalPayload(
-                                                                                                                it
-                                                                                                        )
-                                                                                        )
-                                                                                // Send API request
-                                                                                // after writing to
-                                                                                // characteristic
-                                                                                try {
-                                                                                        RetrofitClient
-                                                                                                .instance
-                                                                                                .setConfig(
+                                                                                        // Send API request after writing to characteristic
+                                                                                        try {
+                                                                                                RetrofitClient.instance.setConfig(
                                                                                                         SetConfigRequest(
-                                                                                                                device_id =
-                                                                                                                        deviceId,
-                                                                                                                name =
-                                                                                                                        "temp_frequency",
-                                                                                                                value =
-                                                                                                                        it.toString()
+                                                                                                                device_id = deviceId,
+                                                                                                                name = "temp_frequency",
+                                                                                                                value = seconds.toString()
                                                                                                         )
                                                                                                 )
-                                                                                        Log.d(
-                                                                                                "DeviceDetails",
-                                                                                                "Sent config: temp_frequency = $it for device $deviceId"
-                                                                                        )
-                                                                                } catch (
-                                                                                        e:
-                                                                                                Exception) {
-                                                                                        Log.e(
-                                                                                                "DeviceDetails",
-                                                                                                "Failed to send config for temp_frequency",
-                                                                                                e
-                                                                                        )
+                                                                                                Log.d(
+                                                                                                        "DeviceDetails",
+                                                                                                        "Sent config: temp_frequency = $seconds for device $deviceId"
+                                                                                                )
+                                                                                        } catch (e: Exception) {
+                                                                                                Log.e(
+                                                                                                        "DeviceDetails",
+                                                                                                        "Failed to send config for temp_frequency",
+                                                                                                        e
+                                                                                                )
+                                                                                        }
                                                                                 }
                                                                         }
-                                                                }
-                                                                FrequencySelector(
+                                                                )
+                                                                CustomIntervalSelector(
                                                                         label = "Feed interval",
-                                                                        options = intervalOptions,
                                                                         enabled = isConnected,
-                                                                        initialValue =
-                                                                                selectedFeedInterval
-                                                                ) {
-                                                                        scope.launch {
-                                                                                selectedFeedInterval =
-                                                                                        it
-                                                                                val deviceId =
-                                                                                        if (currentDevice
-                                                                                                        .topicId
-                                                                                                        .isNotBlank()
+                                                                        unit = feedIntervalUnit,
+                                                                        value = feedIntervalValue,
+                                                                        onUnitChange = { feedIntervalUnit = it },
+                                                                        onValueChange = { feedIntervalValue = it },
+                                                                        onApply = { seconds ->
+                                                                                scope.launch {
+                                                                                        selectedFeedInterval = seconds
+                                                                                        val deviceId =
+                                                                                                if (currentDevice.topicId.isNotBlank())
+                                                                                                        currentDevice.topicId
+                                                                                                else
+                                                                                                        currentDevice.mac
+                                                                                        bleManager.sendCommand(
+                                                                                                bleManager.FEED_INTERVAL_CHR_UUID,
+                                                                                                bleManager.createIntervalPayload(seconds)
                                                                                         )
-                                                                                                currentDevice
-                                                                                                        .topicId
-                                                                                        else
-                                                                                                currentDevice
-                                                                                                        .mac
-                                                                                bleManager
-                                                                                        .sendCommand(
-                                                                                                bleManager
-                                                                                                        .FEED_INTERVAL_CHR_UUID,
-                                                                                                bleManager
-                                                                                                        .createIntervalPayload(
-                                                                                                                it
-                                                                                                        )
-                                                                                        )
-                                                                                // Send API request
-                                                                                // after writing to
-                                                                                // characteristic
-                                                                                try {
-                                                                                        RetrofitClient
-                                                                                                .instance
-                                                                                                .setConfig(
+                                                                                        // Send API request after writing to characteristic
+                                                                                        try {
+                                                                                                RetrofitClient.instance.setConfig(
                                                                                                         SetConfigRequest(
-                                                                                                                device_id =
-                                                                                                                        deviceId,
-                                                                                                                name =
-                                                                                                                        "feed_frequency",
-                                                                                                                value =
-                                                                                                                        it.toString()
+                                                                                                                device_id = deviceId,
+                                                                                                                name = "feed_frequency",
+                                                                                                                value = seconds.toString()
                                                                                                         )
                                                                                                 )
-                                                                                        Log.d(
-                                                                                                "DeviceDetails",
-                                                                                                "Sent config: feed_frequency = $it for device $deviceId"
-                                                                                        )
-                                                                                } catch (
-                                                                                        e:
-                                                                                                Exception) {
-                                                                                        Log.e(
-                                                                                                "DeviceDetails",
-                                                                                                "Failed to send config for feed_frequency",
-                                                                                                e
-                                                                                        )
+                                                                                                Log.d(
+                                                                                                        "DeviceDetails",
+                                                                                                        "Sent config: feed_frequency = $seconds for device $deviceId"
+                                                                                                )
+                                                                                        } catch (e: Exception) {
+                                                                                                Log.e(
+                                                                                                        "DeviceDetails",
+                                                                                                        "Failed to send config for feed_frequency",
+                                                                                                        e
+                                                                                                )
+                                                                                        }
                                                                                 }
                                                                         }
-                                                                }
-                                                                FrequencySelector(
+                                                                )
+                                                                CustomIntervalSelector(
                                                                         label = "Publish interval",
-                                                                        options = intervalOptions,
                                                                         enabled = isConnected,
-                                                                        initialValue =
-                                                                                selectedPublishInterval
-                                                                ) {
-                                                                        scope.launch {
-                                                                                selectedPublishInterval =
-                                                                                        it
-                                                                                val deviceId =
-                                                                                        if (currentDevice
-                                                                                                        .topicId
-                                                                                                        .isNotBlank()
+                                                                        unit = publishIntervalUnit,
+                                                                        value = publishIntervalValue,
+                                                                        onUnitChange = { publishIntervalUnit = it },
+                                                                        onValueChange = { publishIntervalValue = it },
+                                                                        onApply = { seconds ->
+                                                                                scope.launch {
+                                                                                        selectedPublishInterval = seconds
+                                                                                        val deviceId =
+                                                                                                if (currentDevice.topicId.isNotBlank())
+                                                                                                        currentDevice.topicId
+                                                                                                else
+                                                                                                        currentDevice.mac
+                                                                                        bleManager.sendCommand(
+                                                                                                bleManager.PUBLISH_INTERVAL_CHR_UUID,
+                                                                                                bleManager.createIntervalPayload(seconds)
                                                                                         )
-                                                                                                currentDevice
-                                                                                                        .topicId
-                                                                                        else
-                                                                                                currentDevice
-                                                                                                        .mac
-                                                                                bleManager
-                                                                                        .sendCommand(
-                                                                                                bleManager
-                                                                                                        .PUBLISH_INTERVAL_CHR_UUID,
-                                                                                                bleManager
-                                                                                                        .createIntervalPayload(
-                                                                                                                it
-                                                                                                        )
-                                                                                        )
-                                                                                // Send API request
-                                                                                // after writing to
-                                                                                // characteristic
-                                                                                try {
-                                                                                        RetrofitClient
-                                                                                                .instance
-                                                                                                .setConfig(
+                                                                                        // Send API request after writing to characteristic
+                                                                                        try {
+                                                                                                RetrofitClient.instance.setConfig(
                                                                                                         SetConfigRequest(
-                                                                                                                device_id =
-                                                                                                                        deviceId,
-                                                                                                                name =
-                                                                                                                        "wake_frequency",
-                                                                                                                value =
-                                                                                                                        it.toString()
+                                                                                                                device_id = deviceId,
+                                                                                                                name = "wake_frequency",
+                                                                                                                value = seconds.toString()
                                                                                                         )
                                                                                                 )
-                                                                                        Log.d(
-                                                                                                "DeviceDetails",
-                                                                                                "Sent config: wake_frequency = $it for device $deviceId"
-                                                                                        )
-                                                                                } catch (
-                                                                                        e:
-                                                                                                Exception) {
-                                                                                        Log.e(
-                                                                                                "DeviceDetails",
-                                                                                                "Failed to send config for wake_frequency",
-                                                                                                e
-                                                                                        )
+                                                                                                Log.d(
+                                                                                                        "DeviceDetails",
+                                                                                                        "Sent config: wake_frequency = $seconds for device $deviceId"
+                                                                                                )
+                                                                                        } catch (e: Exception) {
+                                                                                                Log.e(
+                                                                                                        "DeviceDetails",
+                                                                                                        "Failed to send config for wake_frequency",
+                                                                                                        e
+                                                                                                )
+                                                                                        }
                                                                                 }
                                                                         }
-                                                                }
+                                                                )
 
                                                                 HorizontalDivider()
                                                                 // WiFi
@@ -1576,6 +1546,145 @@ fun FrequencySelector(
                                                         onSelected(value)
                                                 }
                                         )
+                                }
+                        }
+                }
+        }
+}
+
+@Composable
+fun CustomIntervalSelector(
+        label: String,
+        enabled: Boolean,
+        unit: String,
+        value: Int,
+        onUnitChange: (String) -> Unit,
+        onValueChange: (Int) -> Unit,
+        onApply: (Int) -> Unit
+) {
+        var unitExpanded by remember { mutableStateOf(false) }
+        var valueExpanded by remember { mutableStateOf(false) }
+        
+        val unitOptions = listOf("never", "min", "hr", "days")
+        val valueOptions = when (unit) {
+                "min" -> (1..60).toList()
+                "hr" -> (1..24).toList()
+                "days" -> (1..7).toList()
+                else -> (1..60).toList()
+        }
+        
+        // Helper function to convert unit/value to seconds
+        fun convertToSeconds(u: String, v: Int): Int {
+                return when (u) {
+                        "never" -> 0
+                        "min" -> v * 60
+                        "hr" -> v * 3600
+                        "days" -> v * 86400
+                        else -> v * 60
+                }
+        }
+        
+        // Ensure value is within valid range for current unit
+        LaunchedEffect(unit) {
+                if (unit != "never") {
+                        val validValue = when (unit) {
+                                "min" -> value.coerceIn(1, 60)
+                                "hr" -> value.coerceIn(1, 24)
+                                "days" -> value.coerceIn(1, 7)
+                                else -> value
+                        }
+                        if (validValue != value) {
+                                onValueChange(validValue)
+                        }
+                }
+        }
+        
+        Column(modifier = Modifier.alpha(if (enabled) 1f else 0.5f)) {
+                Text(text = label, style = MaterialTheme.typography.bodySmall)
+                Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                ) {
+                        // Value selector (hidden when "never" is selected)
+                        if (unit != "never") {
+                                Box(
+                                        modifier = Modifier
+                                                .weight(1f)
+                                                .clickable(enabled = enabled) { valueExpanded = true }
+                                                .padding(vertical = 8.dp)
+                                ) {
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                                Text(text = value.toString())
+                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                        }
+                                        DropdownMenu(
+                                                expanded = valueExpanded,
+                                                onDismissRequest = { valueExpanded = false }
+                                        ) {
+                                                valueOptions.forEach { v ->
+                                                        DropdownMenuItem(
+                                                                text = { Text(v.toString()) },
+                                                                onClick = {
+                                                                        onValueChange(v)
+                                                                        val seconds = convertToSeconds(unit, v)
+                                                                        onApply(seconds)
+                                                                        valueExpanded = false
+                                                                }
+                                                        )
+                                                }
+                                        }
+                                }
+                        } else {
+                                // Spacer when "never" is selected to maintain layout
+                                Spacer(modifier = Modifier.weight(1f))
+                        }
+                        
+                        // Unit selector
+                        Box(
+                                modifier = Modifier
+                                        .weight(1f)
+                                        .clickable(enabled = enabled) { unitExpanded = true }
+                                        .padding(vertical = 8.dp)
+                        ) {
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                        Text(text = unit)
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
+                                DropdownMenu(
+                                        expanded = unitExpanded,
+                                        onDismissRequest = { unitExpanded = false }
+                                ) {
+                                        unitOptions.forEach { u ->
+                                                DropdownMenuItem(
+                                                        text = { Text(u) },
+                                                        onClick = {
+                                                                onUnitChange(u)
+                                                                if (u == "never") {
+                                                                        // For "never", value doesn't matter, send 0
+                                                                        onApply(0)
+                                                                } else {
+                                                                        // Reset value to valid range for new unit
+                                                                        val newValue = when (u) {
+                                                                                "min" -> value.coerceIn(1, 60)
+                                                                                "hr" -> value.coerceIn(1, 24)
+                                                                                "days" -> value.coerceIn(1, 7)
+                                                                                else -> value
+                                                                        }
+                                                                        onValueChange(newValue)
+                                                                        val seconds = convertToSeconds(u, newValue)
+                                                                        onApply(seconds)
+                                                                }
+                                                                unitExpanded = false
+                                                        }
+                                                )
+                                        }
                                 }
                         }
                 }
